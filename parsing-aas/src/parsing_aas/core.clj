@@ -8,10 +8,11 @@
   (:require [clojure.java.io :as io]
             [clojure.core.cache :as cache])
   (:import java.util.UUID
+           java.io.File
            org.treedecor.Parser))
 
 (def config (atom {:s2t-exec         nil
-                   :port             8080
+                   :port             55123
                    :table-cache-size 20}))
 
 (def table-cache (atom {}))
@@ -32,38 +33,74 @@
 (defn make-parser [tbl]
   (Parser. ^bytes tbl))
 
-(defn parse [table-id stream do-not-annotate]
+(defn parse [table-id stream do-not-annotate pretty-print]
   (log "parse request"
        (if-let [table (log "lookup table in cache" (get-table table-id))]
-         (let [parse-result (log "actually parsing" (.parse ^Parser (log "create parser" (make-parser table)) ^java.io.InputStream stream))]
-           (if do-not-annotate
-             (str parse-result)
-             (str (log "annotate source location information" (Parser/annotateSourceLocationInformation ^IStrategoTerm parse-result)))))
+         (try
+           (let [parse-result (log "actually parsing" (.parse ^Parser (log "create parser" (make-parser table)) ^java.io.InputStream stream))
+                 maybe-annotated (if do-not-annotate
+                                   parse-result
+                                   (log "annotate source location information" (Parser/annotateSourceLocationInformation parse-result)))]
+             (if pretty-print
+               (log "pretty print" (Parser/prettyPrint maybe-annotated))
+               (str maybe-annotated)))
+           (catch Exception e
+             {:status 400
+              :body (str e)}))
          {:status 410 ; Gone
           :body "Please (re-)register your grammar or table."})))
 
-(defn sdf-to-table
-  ([def module]
-     (sh (or (:s2t-exec @config) "sdf2table")
-         "-m" module :in def :out-enc :bytes)))
+(defmacro with-temp-file
+  "Create a temporary file and delete it after executing `body`.
+   You can refer to the temporary file with the symbol `name`.
+   Note that `name` will be bound to a java.io.File object, call .getAbsolutePath to get it's path.
+   The file will named prefixSomethingPostfix and be in the system's temp dir.
+   Refer to java.io.File/createTempFile for details."
+  [name prefix postfix & body]
+  `(let [~name (java.io.File/createTempFile ~prefix ~postfix)]
+     (try (do~@body)
+        (finally (.delete ~name)))))
 
-(defn register-table [id tbl]
-  (swap! table-cache assoc id tbl)
+(defn sdf-to-table [def module]
+  ;; HACK: We need to create a temporary file because the sdf2table version
+  ;; from the native bundle is broken when using standard input
+  ;; HACK2: We need to create a second temporary file for the output, because
+  ;; apparently, standard output handling is broken as soon as you do not use
+  ;; standard input but input from file. You couldn't make this stuff up...
+  (with-temp-file def-tmp-file "def-tmp-file" ".def"
+    (with-temp-file tbl-tmp-file "tbl-tmp-file" ".tbl"
+      (spit def-tmp-file def)
+      (let [ext-call (sh (or (:s2t-exec @config) "sdf2table")
+                         "-m" module
+                         "-i" (.getAbsolutePath def-tmp-file)
+                         "-o" (.getAbsolutePath tbl-tmp-file))
+            tbl (byte-array (.length tbl-tmp-file))]
+        (with-open [reader (io/input-stream tbl-tmp-file)]
+          (.read reader tbl))
+        (assoc ext-call :out tbl)))))
+
+(defn created-table-response [id]
   {:status 201 ; Created
    :headers {"Location" (str "/table/" id)}
    :body id})
 
+(defn register-table [id tbl]
+  (swap! table-cache assoc id tbl)
+  id)
+
 (defn register-grammar [in-stream module]
   (let [def (slurp in-stream)
-        hash (str (hash def))]
+        hash (str module (hash def))]
     (if (= "" def)
       {:status 400
        :body "No content. Fix your client. Try using Content-Type:application/x-sdf"}
       (if (get-table hash)
-        hash
+        (created-table-response hash)
         (let [ext-call (sdf-to-table def module)]
           (if (= (:exit ext-call) 0)
-            (register-table hash (:out ext-call))
+            (do
+              (register-table hash (:out ext-call))
+              (created-table-response hash))
             {:status 422
              :body (:err ext-call)}))))))
 
@@ -73,9 +110,10 @@
         (register-grammar body module))
   (GET "/table" [] (apply str (interpose "\n" (keys @table-cache))))
   (ANY "/parse/:table-id" {body :body
-                         {table-id :table-id
-                          do-not-annotate "disableSourceLocationInformation"} :params}
-       (parse table-id body (= do-not-annotate "true")))
+                           {table-id :table-id
+                            do-not-annotate "disableSourceLocationInformation"
+                            pretty-print "prettyPrint"} :params}
+       (parse table-id body (= do-not-annotate "true") (= pretty-print "true")))
   (POST "/table" {body :body} (register-table (uuid) body))
   (files "/" {:root "web"})
 )

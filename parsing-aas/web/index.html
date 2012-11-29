@@ -5,7 +5,7 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>
     <script type="text/javascript">
       function postParseSuccess(responseText) {
-        $('[name=parseresult]').text(responseText)
+        $('[name=parseresult]').val(responseText)
       }
 
       function postParseError(jqxhr) {
@@ -14,8 +14,11 @@
 
       function parse() {
         // clear result area
-        $('#parseResult').text("")
-        $.ajax("parse/" + $('[name=parserID]').val() + ($('[name=disableSourceLocationInformation]').is(':checked') ? "?disableSourceLocationInformation=true" : ""),
+        $('[name=parseresult]').val("")
+        $.ajax("parse/" + encodeURIComponent($('[name=parserID]').val()) + "?" + $.param({
+              "disableSourceLocationInformation" : $('[name=disableSourceLocationInformation]').is(':checked') ? "true" : "false",
+              "prettyPrint" : $('[name=prettyPrint]').is(':checked') ? "true" : "false"
+            }),
                {'data':$('[name=parsecontent]').val(),
                 'type': 'POST',
                 'processData': false,
@@ -28,8 +31,8 @@
         alert("sdf2table failed. Error:\n" + jqxhr.responseText)
       }
 
-      function postDefSuccess(responseText) {
-        var id = responseText
+      function postDefSuccess(_1, _2, response) {
+        var id = response.responseText
         $('[name=parserID]').val(id)
         alert("Use this parser ID: " + id)
         var jump = $('[name=parse]')
@@ -46,6 +49,22 @@
                 'success':postDefSuccess,
                 'error':postDefError})
       }
+
+      languageModules = {
+        "xml.def" : "xml",
+        "Java-15.def" : "Java-15",
+        "Haskell.def" : "Haskell"
+      }                         
+
+      function loadDefaultGrammar() {
+        var language = $('[name=defaultDef]').val()
+        $.ajax("grammars/"+language, 
+          {'success': function (_1, _2, response) {
+             var def = response.responseText
+             $('[name=defcontent]').val(def)
+             $('[name=module]').val(languageModules[language])
+           }})
+      }
     </script>
   </head>
   <body>
@@ -53,13 +72,24 @@
     <h3><a name="parse">Parse</a></h3>
     <form>
       <p><textarea name="parsecontent" type="" cols="80" rows="24"></textarea></p>
-      <p>Parser ID: <input name="parserID" type="text"/> <small>If you don't have one, get one by creating a parser from a SDF <a href="#def">grammar .def</a></small></p>
-      <p><input type="checkbox" name="disableSourceLocationInformation" checked>Disable source location information <input type="button" value="Parse" onClick="parse()"/></p>
+      <p>Parser ID: <input name="parserID" type="text"/> <small>If you don't have one, get one by creating a parser from an SDF <a href="#def">grammar .def</a></small></p>
+      <p>
+        <input type="checkbox" name="disableSourceLocationInformation" checked>Disable source location information <br />
+        <input type="checkbox" name="prettyPrint" checked>Pretty print <br />
+        <input type="button" value="Parse" onClick="parse()"/></p>
     </form>
     <h3>Parse result</h3>
     <textarea name="parseresult" type="" cols="80" rows="24"></textarea>
     <h3><a name="def">Create parser from .def</a></h3>
     <form>
+      <p>Load example grammar:
+        <select name="defaultDef">
+          <option value="Java-15.def">Java</option>
+          <option value="Haskell.def">Haskell</option>
+          <option value="xml.def">XML</option>
+        </select>
+        <input type="button" value="Load" onClick="loadDefaultGrammar()">
+      </p>
       <p><textarea name="defcontent" type="" cols="80" rows="24"></textarea></p>
       <p>Module: <input name="module" type="text"/> <small>defaults to Main</small></p>
       <p><input type="button" value="Submit" onClick="postDef()"/></p>

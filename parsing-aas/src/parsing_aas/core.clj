@@ -9,6 +9,9 @@
             [clojure.core.cache :as cache])
   (:import java.util.UUID
            java.io.File
+           org.spoofax.terms.TermFactory
+           org.spoofax.terms.io.binary.TermReader
+           org.spoofax.jsglr.client.ParseTable
            org.treedecor.Parser))
 
 (def config (atom {:s2t-exec         nil
@@ -30,8 +33,8 @@
 (defn get-table [grammar-hash]
   (get @table-cache grammar-hash))
 
-(defn make-parser [tbl]
-  (Parser. ^bytes tbl))
+(defn make-parser ^Parser [^ParseTable tbl]
+  (Parser. tbl))
 
 (defn parse [table-id stream do-not-annotate pretty-print]
   (log "parse request"
@@ -84,8 +87,13 @@
    :headers {"Location" (str "/table/" id)}
    :body id})
 
-(defn register-table [id tbl]
-  (swap! table-cache assoc id tbl)
+(defn make-parse-table ^ParseTable [^bytes byte-array]
+  (ParseTable. (.parseFromStream (TermReader. (TermFactory.))
+                                 (java.io.ByteArrayInputStream. byte-array))
+               (TermFactory.)))
+
+(defn register-table [id ^ParseTable parse-table]
+  (swap! table-cache assoc id parse-table)
   id)
 
 (defn register-grammar [in-stream module]
@@ -99,7 +107,7 @@
         (let [ext-call (sdf-to-table def module)]
           (if (= (:exit ext-call) 0)
             (do
-              (register-table hash (:out ext-call))
+              (register-table hash (make-parse-table (:out ext-call)))
               (created-table-response hash))
             {:status 422
              :body (:err ext-call)}))))))

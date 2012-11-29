@@ -9,10 +9,10 @@ curl -X POST -H 'Content-Type:application/x-sdf' --data-binary @../syntax.xml/xm
 
 for i in {1..100}
 do
-	curl -X GET -H 'Content-Type: application/binary' -d @../renderer.imp/plugin.xml "http://$HOST/parse/-993726346?disableSourceLocationInformation=true"
+	curl -X GET -H 'Content-Type: application/binary' -d @../renderer.imp/plugin.xml "http://$HOST/parse/xml-1654052769?disableSourceLocationInformation=true"
 done
 
 for i in {1..100}
 do
-	curl -X GET -H 'Content-Type: application/binary' -d @../renderer.imp/plugin.xml "http://$HOST/parse/-993726346"
+	curl -X GET -H 'Content-Type: application/binary' -d @../renderer.imp/plugin.xml "http://$HOST/parse/xml-1654052769"
 done

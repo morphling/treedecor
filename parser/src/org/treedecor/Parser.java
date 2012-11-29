@@ -47,7 +47,11 @@ public class Parser {
 	protected final SGLR parser;
 	
 	private Parser(IStrategoTerm parseTableTerm) throws InvalidParseTableException {
-		parseTable = new ParseTable(parseTableTerm, termFactory);
+		this(new ParseTable(parseTableTerm, termFactory));		
+	}
+	
+	public Parser(ParseTable parseTable) {
+		this.parseTable = parseTable;
 		ITreeBuilder treeBuilder = new TreeBuilder(false);
 		parser = new SGLR(treeBuilder, parseTable);		
 		// Absolutely need to set this (not necessarily to true, crashes otherwise)

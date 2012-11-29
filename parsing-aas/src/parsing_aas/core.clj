@@ -20,8 +20,6 @@
 
 (def table-cache (atom {}))
 
-(defn uuid [] (.toString (java.util.UUID/randomUUID)))
-
 (defmacro log [message & body]
   `(let [start# (System/nanoTime)
          ~'_ (println "Start" ~message "at" start#)
@@ -30,17 +28,17 @@
      (println "End" ~message "at" end# "Duration:" (/ (- end# start#) 1000000.0) "ms")
      ret#))
 
-(defn get-table [grammar-hash]
+(defn get-table ^ParseTable [grammar-hash]
   (get @table-cache grammar-hash))
 
 (defn make-parser ^Parser [^ParseTable tbl]
   (Parser. tbl))
 
-(defn parse [table-id stream do-not-annotate pretty-print]
+(defn parse [table-id ^java.io.InputStream stream do-not-annotate pretty-print]
   (log "parse request"
-       (if-let [table (log "lookup table in cache" (get-table table-id))]
+       (if-let [table (get-table table-id)]
          (try
-           (let [parse-result (log "actually parsing" (.parse ^Parser (log "create parser" (make-parser table)) ^java.io.InputStream stream))
+           (let [parse-result (log "actually parsing" (.parse (make-parser table) stream))
                  maybe-annotated (if do-not-annotate
                                    parse-result
                                    (log "annotate source location information" (Parser/annotateSourceLocationInformation parse-result)))]
@@ -116,13 +114,11 @@
   (POST "/grammar" {body                                  :body
                     {module "module" :or {module "Main"}} :params}
         (register-grammar body module))
-  (GET "/table" [] (apply str (interpose "\n" (keys @table-cache))))
   (ANY "/parse/:table-id" {body :body
                            {table-id :table-id
                             do-not-annotate "disableSourceLocationInformation"
                             pretty-print "prettyPrint"} :params}
        (parse table-id body (= do-not-annotate "true") (= pretty-print "true")))
-  (POST "/table" {body :body} (register-table (uuid) body))
   (files "/" {:root "web"})
 )
 
